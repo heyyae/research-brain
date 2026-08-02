@@ -12,7 +12,7 @@ def _read_transcript_interactive() -> tuple[str, str | None]:
 
     first_line = input()
     candidate = Path(first_line.strip())
-    if not candidate.is_absolute():
+    if first_line.strip() and not candidate.is_file() and not candidate.is_absolute():
         candidate = TRANSCRIPTS_DIR / first_line.strip()
     if first_line.strip() and candidate.is_file():
         return candidate.read_text(), str(candidate)
@@ -31,7 +31,7 @@ def cmd_capture(args: argparse.Namespace) -> None:
 
     if args.file:
         path = Path(args.file)
-        if not path.is_absolute():
+        if not path.is_absolute() and not path.is_file():
             path = TRANSCRIPTS_DIR / args.file
         raw_text = path.read_text()
         source_path = str(path)
