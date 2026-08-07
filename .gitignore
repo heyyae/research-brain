@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 .DS_Store
 
-# exclude from commits unless sharing for team use
+# research data — contains participant quotes, keep local
 transcripts
 outputs/*.md
+data/research_brain.db
