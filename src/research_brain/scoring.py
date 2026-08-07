@@ -7,7 +7,7 @@ feel in practice.
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-HALF_LIFE_DAYS = 90.0  # decay half-life shared by confidence + priority severity
+HALF_LIFE_DAYS = 180.0  # decay half-life shared by confidence + priority severity
 CONFIDENCE_K = 3.0  # squashing constant in raw / (raw + k)
 SEGMENT_DIVERSITY_BONUS = 0.15  # per additional distinct segment beyond the first
 METHOD_DIVERSITY_BONUS = 0.10  # per additional distinct method beyond the first
@@ -16,18 +16,42 @@ PREVALENCE_WEIGHT = 0.5
 SEVERITY_WEIGHT = 0.5
 PREVALENCE_SOURCE_CAP = 8  # distinct (segment, method) pairs for max prevalence score
 
-# Method quality weights: not all research methods are equally strong evidence.
-# Observed behavior > analytics > usability test > interview > support ticket,
-# per the original data model doc. Unrecognized/free-text methods default to 1.0
-# (treated as interview-strength) rather than erroring, since `method` is free text.
+# Method quality weights now express within-category reliability only — the
+# cross-category "behavioral vs. explanatory" question is handled separately
+# by triangulation_multiplier(), so these no longer need a single ladder that
+# ranks e.g. analytics against interview. Unrecognized/free-text methods
+# default to 1.0 (treated as interview-strength) rather than erroring, since
+# `method` is free text.
+#
+# Behavioral bucket: analytics > observation > usability_test (large-sample,
+# unbiased analytics outranks smaller-sample real-world observation, which
+# outranks the more artificial lab-task setting of a usability test).
+# Explanatory bucket: usability_test == interview (equally credited for
+# surfacing why; usability_test also covers the behavioral side at once, per
+# BEHAVIORAL_METHODS below). Since usability_test needs to equal interview
+# for the explanatory comparison, its value is set by that constraint rather
+# than by the behavioral ranking alone.
+# support_ticket stays its own low-reliability signal: unsolicited,
+# unstructured, self-selected toward unhappy users.
 METHOD_WEIGHTS = {
-    "analytics": 2.0,
-    "observation": 1.8,
-    "usability_test": 1.5,
+    "analytics": 1.5,
+    "observation": 1.3,
+    "usability_test": 1.0,
     "interview": 1.0,
     "support_ticket": 0.8,
 }
 DEFAULT_METHOD_WEIGHT = 1.0
+
+# Methods answer different questions and aren't comparable on one reliability
+# ladder: behavioral methods show *what* users do, explanatory methods surface
+# *why*. Confidence requires triangulating both; usability_test does both at
+# once (think-aloud alongside observed behavior), so it satisfies either side.
+# support_ticket is neither — real signal, but not confirmatory on its own —
+# so it doesn't count toward triangulation, though it still adds to raw score.
+BEHAVIORAL_METHODS = {"analytics", "observation", "usability_test"}
+EXPLANATORY_METHODS = {"interview", "usability_test"}
+TRIANGULATION_BONUS_MULTIPLIER = 1.0  # both what + why present
+NO_TRIANGULATION_MULTIPLIER = 0.5  # only one side (or neither) present
 
 # Directness weight: a verbatim quote is stronger evidence than a paraphrase/hearsay.
 DIRECTNESS_WEIGHTS = {
@@ -37,8 +61,22 @@ DIRECTNESS_WEIGHTS = {
 DEFAULT_DIRECTNESS_WEIGHT = 1.0
 
 
+def _normalize_method(method: str) -> str:
+    return method.strip().lower().replace(" ", "_")
+
+
 def method_weight(method: str) -> float:
-    return METHOD_WEIGHTS.get(method.strip().lower().replace(" ", "_"), DEFAULT_METHOD_WEIGHT)
+    return METHOD_WEIGHTS.get(_normalize_method(method), DEFAULT_METHOD_WEIGHT)
+
+
+def triangulation_multiplier(links: list[EvidenceLinkRow]) -> float:
+    non_contradict = [link for link in links if link.stance != "contradict"]
+    methods = {_normalize_method(link.method) for link in non_contradict}
+    has_behavioral = bool(methods & BEHAVIORAL_METHODS)
+    has_explanatory = bool(methods & EXPLANATORY_METHODS)
+    if has_behavioral and has_explanatory:
+        return TRIANGULATION_BONUS_MULTIPLIER
+    return NO_TRIANGULATION_MULTIPLIER
 
 
 def directness_weight(directness: str | None) -> float:
@@ -106,6 +144,7 @@ def confidence_score(links: list[EvidenceLinkRow], now: datetime | None = None) 
         for link in links
     )
     raw *= diversity_bonus(links)
+    raw *= triangulation_multiplier(links)
     if raw <= 0:
         return 0.0
     score = 100.0 * raw / (raw + CONFIDENCE_K)
@@ -118,8 +157,16 @@ def priority_score(links: list[EvidenceLinkRow], now: datetime | None = None) ->
     now = now or datetime.now(timezone.utc)
 
     non_contradict = [link for link in links if link.stance != "contradict"]
-    distinct_sources = len({(link.segment, link.method) for link in non_contradict})
-    prevalence = min(distinct_sources, PREVALENCE_SOURCE_CAP) / PREVALENCE_SOURCE_CAP * 100.0
+    # Weight each distinct (segment, method) source by its most-recent touch, so a
+    # source with only stale evidence contributes less prevalence than a fresh one.
+    most_recent_decay_by_source: dict[tuple[str, str], float] = {}
+    for link in non_contradict:
+        source = (link.segment, link.method)
+        decay = decay_weight(age_days(link.created_at, now))
+        if decay > most_recent_decay_by_source.get(source, 0.0):
+            most_recent_decay_by_source[source] = decay
+    weighted_sources = sum(most_recent_decay_by_source.values())
+    prevalence = min(weighted_sources, PREVALENCE_SOURCE_CAP) / PREVALENCE_SOURCE_CAP * 100.0
 
     decayed_severities = [
         link.severity * decay_weight(age_days(link.created_at, now)) for link in links

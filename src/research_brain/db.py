@@ -286,3 +286,32 @@ def link_hypothesis_insight(conn: sqlite3.Connection, hypothesis_id: int, insigh
         "INSERT OR IGNORE INTO hypothesis_insight_links (hypothesis_id, insight_id) VALUES (?, ?)",
         (hypothesis_id, insight_id),
     )
+
+
+def get_motivating_insights(conn: sqlite3.Connection, hypothesis_id: int) -> list[sqlite3.Row]:
+    return conn.execute(
+        """SELECT i.* FROM insights i
+           JOIN hypothesis_insight_links hil ON hil.insight_id = i.id
+           WHERE hil.hypothesis_id = ?
+           ORDER BY i.confidence_score DESC""",
+        (hypothesis_id,),
+    ).fetchall()
+
+
+def list_all_hypotheses_by_priority(
+    conn: sqlite3.Connection, problem_area_id: int | None = None, status: str = "active"
+) -> list[sqlite3.Row]:
+    """All hypotheses joined with their problem area, ordered by problem-area priority
+    (highest first) then hypothesis id — the "what should product look at first" view."""
+    query = """
+        SELECT h.*, pa.title AS problem_area_title, pa.priority_score AS problem_area_priority
+        FROM hypotheses h
+        JOIN problem_areas pa ON pa.id = h.problem_area_id
+        WHERE h.status = ?
+    """
+    params: list = [status]
+    if problem_area_id is not None:
+        query += " AND h.problem_area_id = ?"
+        params.append(problem_area_id)
+    query += " ORDER BY pa.priority_score DESC, h.problem_area_id, h.id"
+    return conn.execute(query, params).fetchall()

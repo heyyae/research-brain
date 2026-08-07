@@ -6,8 +6,8 @@ For each distinct signal you find:
 - Pull the verbatim quote or excerpt that best supports it.
 - Write a one-line paraphrase (signal_summary).
 - Tag the user segment it applies to. Default to the capture's overall segment, but use a more specific \
-segment if the quote clearly indicates one (e.g. capture is tagged "caseworker" but the speaker identifies \
-as a "senior caseworker").
+segment if the quote clearly indicates one (e.g. capture is tagged "elderly" but the speaker identifies \
+as a "elder scam victim").
 - Estimate severity from 0.0 (minor friction) to 1.0 (severe blocker), based on the language and \
 consequences described.
 - Classify directness: "direct_quote" if the speaker is describing their OWN first-hand experience \
@@ -76,13 +76,18 @@ leave existing_hypothesis_id null.
 2. For every insight under this problem area that had new evidence THIS run (listed below as "recently \
 touched insights"), state whether it was REINFORCED, CONTRADICTED, or NEUTRAL this run, with a short note.
 
+Each insight lists days since its last evidence. A low confidence score on an insight with recent evidence \
+means the evidence itself is weak or conflicting — treat that as a genuine signal. A low confidence score on \
+an insight that hasn't been touched in a long time may simply be stale rather than disproven — note this \
+distinction when it affects whether a hypothesis should be reaffirmed, revised, or deprioritized.
+
 Ground every hypothesis in the actual insights provided — do not invent unsupported claims."""
 
 HYPOTHESES_USER_TEMPLATE = """Problem area: {title}
 Description: {description}
 Priority score: {priority_score:.1f}
 
-All insights in this problem area (id | title | summary | confidence | support/contradict counts):
+All insights in this problem area (id | title | summary | confidence | support/contradict counts | last evidence):
 {insights_block}
 
 Recently touched insights this run (id | stance applied):

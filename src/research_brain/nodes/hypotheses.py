@@ -5,6 +5,7 @@ from research_brain.config import HYPOTHESIS_TOP_N
 from research_brain.llm import get_llm
 from research_brain.models import HypothesisUpdateResult
 from research_brain.prompts import HYPOTHESES_SYSTEM_PROMPT, HYPOTHESES_USER_TEMPLATE
+from research_brain.scoring import age_days
 from research_brain.state import GraphState, HypothesisNodeInput
 
 
@@ -26,7 +27,8 @@ def update_hypotheses(input: HypothesisNodeInput) -> dict:
 
         insights_block = "\n".join(
             f"{r['id']} | {r['title']} | {r['summary']} | confidence={r['confidence_score']:.1f} "
-            f"| support={r['support_count']} contradict={r['contradict_count']}"
+            f"| support={r['support_count']} contradict={r['contradict_count']} "
+            f"| last_evidence={age_days(r['updated_at']):.0f}d ago"
             for r in insight_rows
         ) or "(none)"
 
