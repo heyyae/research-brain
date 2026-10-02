@@ -93,13 +93,62 @@ def _run_pipeline(capture_id: int, title: str, capture_date: str, method: str, s
         raise
 
 
+def _recompute_scores(conn, insight_ids: list[int]) -> None:
+    """Recompute confidence for the given insights and priority for their problem
+    areas from whatever evidence currently remains. Used after evidence links are
+    deleted (e.g. a replay clears a capture's old links) so stale scores don't linger."""
+    from research_brain.scoring import EvidenceLinkRow, confidence_score, priority_score
+
+    def _rows(links):
+        return [
+            EvidenceLinkRow(
+                stance=r["stance"], severity=r["severity"], segment=r["segment"],
+                method=r["method"], created_at=r["created_at"], directness=r["directness"],
+            )
+            for r in links
+        ]
+
+    affected_area_ids: set[int] = set()
+    for insight_id in insight_ids:
+        insight = db.get_insight(conn, insight_id)
+        if insight is None:
+            continue
+        affected_area_ids.add(insight["problem_area_id"])
+        links = db.get_evidence_links_for_insight(conn, insight_id)
+        support = sum(1 for r in links if r["stance"] == "support")
+        contradict = sum(1 for r in links if r["stance"] == "contradict")
+        db.update_insight_scores(
+            conn, insight_id,
+            support_count=support, contradict_count=contradict,
+            confidence_score=confidence_score(_rows(links)),
+        )
+    for area_id in affected_area_ids:
+        links = db.get_evidence_links_for_problem_area(conn, area_id)
+        db.update_problem_area_priority(conn, area_id, priority_score(_rows(links)))
+
+
 def cmd_replay(args: argparse.Namespace) -> None:
     db.init_db()
     with db.connect() as conn:
         capture = db.get_capture(conn, args.capture_id)
-    if capture is None:
-        print(f"No capture with id {args.capture_id}", file=sys.stderr)
-        sys.exit(1)
+        if capture is None:
+            print(f"No capture with id {args.capture_id}", file=sys.stderr)
+            sys.exit(1)
+        # Clear this capture's prior evidence first, then recompute the scores of
+        # everything it used to touch — otherwise replaying appends a second copy
+        # of every quote on top of the old run, double-counting the evidence.
+        affected_insight_ids = [
+            row["insight_id"]
+            for row in conn.execute(
+                "SELECT DISTINCT insight_id FROM evidence_links WHERE capture_id = ?",
+                (args.capture_id,),
+            ).fetchall()
+        ]
+        removed = db.delete_evidence_links_for_capture(conn, args.capture_id)
+        _recompute_scores(conn, affected_insight_ids)
+        conn.commit()
+    if removed:
+        print(f"Cleared {removed} prior evidence link(s) from capture #{args.capture_id} before replay.")
     _run_pipeline(
         capture["id"], capture["title"], capture["capture_date"], capture["method"], capture["segment"], capture["raw_text"]
     )

@@ -229,6 +229,16 @@ def insert_evidence_link(
     method: str,
     directness: str = "direct_quote",
 ) -> int:
+    # Guard against double-counting the same piece of evidence: one capture should
+    # link a given quote to a given insight at most once. Without this, re-running
+    # the pipeline for a capture (replay) or the model re-emitting the same quote
+    # within one run would attach the quote twice and inflate confidence/priority.
+    existing = conn.execute(
+        "SELECT id FROM evidence_links WHERE insight_id = ? AND capture_id = ? AND quote = ?",
+        (insight_id, capture_id, quote),
+    ).fetchone()
+    if existing is not None:
+        return existing["id"]
     cur = conn.execute(
         """INSERT INTO evidence_links (insight_id, capture_id, stance, quote, signal_summary, severity,
                                         segment, method, directness, created_at)
@@ -236,6 +246,15 @@ def insert_evidence_link(
         (insight_id, capture_id, stance, quote, signal_summary, severity, segment, method, directness, now_iso()),
     )
     return cur.lastrowid
+
+
+def delete_evidence_links_for_capture(conn: sqlite3.Connection, capture_id: int) -> int:
+    """Remove all evidence a capture contributed. Used before a replay so the
+    capture's evidence is rebuilt from scratch rather than appended on top of the
+    previous run's links. Returns the number of links deleted. Callers are
+    responsible for recomputing affected insight/problem-area scores afterward."""
+    cur = conn.execute("DELETE FROM evidence_links WHERE capture_id = ?", (capture_id,))
+    return cur.rowcount
 
 
 def get_evidence_links_for_insight(conn: sqlite3.Connection, insight_id: int) -> list[sqlite3.Row]:
