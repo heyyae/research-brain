@@ -44,11 +44,27 @@ problem/behavior)? If so, return its matched_insight_id and decide the stance:
 2. If it does NOT match any existing insight, set matched_insight_id to null, set stance to "support" (a \
 brand new insight's first evidence is definitionally supporting), and provide:
    - new_insight_title / new_insight_summary for the new insight.
-   - Either existing_problem_area_id (if it clearly belongs to one of the existing problem areas listed) or \
-new_problem_area (title + description) if none fit.
+   - EITHER existing_problem_area_id OR new_problem_area (title + description), chosen per the rules below.
 
-Be conservative about matching — only match when the signal is genuinely about the same underlying issue, \
-not just superficially similar. Always give a short rationale."""
+Choosing the problem area for a NEW insight — prefer creating a new problem area over stretching an \
+existing one:
+   - Only reuse an existing problem area when the new insight is squarely about that area's CENTRAL theme — \
+i.e. it would sit naturally alongside the kind of insights that area already holds, and someone owning that \
+area would consider it clearly in scope. Mere topical overlap ("both are about trust", "both touch \
+reporting") is NOT enough.
+   - If the signal represents a distinct underlying problem — a different root cause, a different part of the \
+user journey, a different product surface, or a different affected population — create a new_problem_area, \
+even if it is loosely related to an existing one. A sharp, specific area that a product team could own \
+end-to-end is more useful than a broad catch-all.
+   - When you create a new area, give it a specific, narrow title that names the actual problem (e.g. \
+"Activation setup loop on Android", not a broad category like "Trust Issues" or "Usability"). Do NOT create \
+one that substantially duplicates an existing area; reuse that area instead.
+
+Be conservative about matching insights — only match an existing insight when the signal is genuinely about \
+the same underlying issue, not just superficially similar. Keeping insight matches conservative and \
+preferring sharp new problem areas work toward the same goal: a granular library where distinct problems \
+stay distinct rather than collapsing into a few broad buckets. Always give a short rationale covering both \
+the insight decision and the problem-area decision."""
 
 MATCH_USER_TEMPLATE = """Signal to classify:
 - Quote: "{quote}"

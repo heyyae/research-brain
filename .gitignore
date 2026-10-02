@@ -8,3 +8,4 @@ __pycache__/
 transcripts
 outputs/*.md
 data/research_brain.db
+data/*.db.bak*
